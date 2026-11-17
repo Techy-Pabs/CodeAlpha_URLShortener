@@ -40,6 +40,10 @@ def create_app(config_name: str | None = None) -> Flask:
     from app.api import bp as api_bp
 
     app.register_blueprint(api_bp)
+
+    from app.web import bp as web_bp
+
+    app.register_blueprint(web_bp)
     register_error_handlers(app)
 
     return app

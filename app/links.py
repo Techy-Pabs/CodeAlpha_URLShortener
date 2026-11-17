@@ -4,7 +4,7 @@ import secrets
 import string
 
 from flask import current_app
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.errors import ApiError, validation_error
@@ -110,3 +110,41 @@ def _create_random(url: str) -> tuple[Link, bool]:
     raise ApiError(
         500, "code_generation_failed", "Could not generate a unique short code. Please try again."
     )
+
+
+def get_link(code: str) -> Link:
+    link = db.session.scalar(select(Link).where(Link.code == code))
+    if link is None:
+        raise not_found(code)
+    return link
+
+
+def record_click(code: str) -> str:
+    """Count one click and return the URL to redirect to, in one statement.
+
+    UPDATE links SET clicks = clicks + 1, last_clicked_at = now()
+    WHERE code = :code RETURNING original_url
+
+    The database adds 1 to whatever value it holds at that moment, under a
+    row lock, so simultaneous clicks can't overwrite each other. Reading
+    clicks into Python, adding 1 and saving would lose some of them.
+    """
+    statement = (
+        update(Link)
+        .where(Link.code == code)
+        .values(clicks=Link.clicks + 1, last_clicked_at=func.now())
+        .returning(Link.original_url)
+        # Don't also refresh Link objects held in this session (that would
+        # cost a second query); nothing here holds any.
+        .execution_options(synchronize_session=False)
+    )
+    url = db.session.scalar(statement)
+    if url is None:
+        db.session.rollback()
+        raise not_found(code)
+    db.session.commit()
+    return url
+
+
+def not_found(code: str) -> ApiError:
+    return ApiError(404, "not_found", f"No short link with the code '{code}'")

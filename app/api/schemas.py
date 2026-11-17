@@ -46,3 +46,8 @@ class LinkResponse(BaseModel):
     original_url: str
     clicks: int
     created_at: datetime
+
+
+class LinkStatsResponse(LinkResponse):
+    last_clicked_at: datetime | None
+    is_custom: bool

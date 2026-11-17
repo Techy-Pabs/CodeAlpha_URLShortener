@@ -4,10 +4,10 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api import bp
-from app.api.schemas import CreateLinkRequest, LinkResponse
+from app.api.schemas import CreateLinkRequest, LinkResponse, LinkStatsResponse
 from app.errors import from_pydantic, validation_error
 from app.extensions import db
-from app.links import create_link, short_url
+from app.links import create_link, get_link, short_url
 from app.models import Link
 
 
@@ -48,3 +48,18 @@ def create():
 
     link, created = create_link(body.url, body.custom_code)
     return link_response(link), 201 if created else 200
+
+
+@bp.get("/links/<code>")
+def stats(code: str):
+    """Details and click count for one link. Viewing stats is not a click."""
+    link = get_link(code)
+    return LinkStatsResponse(
+        code=link.code,
+        short_url=short_url(link.code),
+        original_url=link.original_url,
+        clicks=link.clicks,
+        created_at=link.created_at,
+        last_clicked_at=link.last_clicked_at,
+        is_custom=link.is_custom,
+    ).model_dump(mode="json")
