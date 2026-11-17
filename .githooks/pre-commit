@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Pre-commit secret check. Blocks the commit if staged changes contain:
+#   1. a .env file (or key files such as *.pem, *.key, id_rsa)
+#   2. secret-looking patterns (hardcoded Flask SECRET_KEY, private keys, tokens)
+#   3. any value copied from the local .env
+# If the check itself errors, the commit is blocked too (fail closed).
+# Enable once per clone:  git config core.hooksPath .githooks
+set -euo pipefail
+
+fail() {
+  echo "" >&2
+  echo "!!! SECRET CHECK FAILED: $*" >&2
+  echo "!!! Commit blocked. Unstage the file or remove the secret, then retry." >&2
+  exit 1
+}
+trap 'fail "the check itself errored (line $LINENO)"' ERR
+
+# contains NEEDLE HAYSTACK -> 0 if found, 1 if not; any grep error blocks.
+# Uses a here-string (no pipe) so SIGPIPE can't turn a match into a miss.
+contains() {
+  local rc=0
+  grep -qF -- "$1" <<<"$2" || rc=$?
+  [ "$rc" -le 1 ] || fail "substring check errored (grep exit $rc)"
+  return "$rc"
+}
+
+cd "$(git rev-parse --show-toplevel)"
+
+# Forbidden filenames (.env.example is the one allowed .env file).
+FORBIDDEN='(^|/)\.env($|\.)|\.pem$|\.key$|(^|/)id_(rsa|dsa|ecdsa|ed25519)|\.p12$|\.pfx$'
+ALLOWED='(^|/)\.env\.example$'
+
+# 0. A rename whose SOURCE is a forbidden file (e.g. git mv .env app.cfg)
+#    still commits the secret under a new name, so block it.
+rc=0
+renames=$(git diff --cached --name-status -M --diff-filter=R) || rc=$?
+[ "$rc" -eq 0 ] || fail "rename listing errored (git exit $rc)"
+if [ -n "$renames" ]; then
+  rc=0
+  bad=$(cut -f2 <<<"$renames" | grep -vE "$ALLOWED" | grep -E "$FORBIDDEN") || rc=$?
+  [ "$rc" -le 1 ] || fail "rename check errored (grep exit $rc)"
+  [ -z "$bad" ] || fail "forbidden file renamed (its contents would be committed): $bad"
+fi
+
+# Added, copied, modified and renamed files. --no-renames makes git report a
+# rename as delete + add, so the renamed file's full contents land in the
+# diff below. Without it a pure rename shows no added lines and the content
+# checks would never see it.
+files=$(git diff --cached --no-renames --name-only --diff-filter=ACMR)
+if [ -z "$files" ]; then
+  exit 0  # nothing added or modified (e.g. only deletions or --allow-empty)
+fi
+
+echo "Secret check: staged files"
+echo "$files" | sed 's/^/  /'
+
+# 1. Forbidden filenames among the staged files
+rc=0
+bad=$(grep -vE "$ALLOWED" <<<"$files" | grep -E "$FORBIDDEN") || rc=$?
+[ "$rc" -le 1 ] || fail "filename check errored (grep exit $rc)"
+[ -z "$bad" ] || fail "forbidden file staged: $bad"
+
+# 2. Secret-looking patterns in the added lines of the staged diff
+diff=$(git diff --cached --no-renames -U0 --no-color)
+rc=0
+added=$(grep -E '^\+' <<<"$diff" | grep -vE '^\+\+\+ ') || rc=$?
+[ "$rc" -le 1 ] || fail "diff extraction errored (grep exit $rc)"
+rc=0
+# A Flask SECRET_KEY hardcoded in Python (SECRET_KEY = "..." or
+# app.secret_key = "...") of 8+ characters. Keys belong in .env only.
+hits=$(grep -nE <<<"$added" \
+  '(SECRET_KEY|secret_key) *= *["'"'"'][^"'"'"']{8,}|-----BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9_-]{20,}') || rc=$?
+[ "$rc" -le 1 ] || fail "pattern check errored (grep exit $rc)"
+[ -z "$hits" ] || fail "secret-looking pattern in staged changes:
+$hits"
+
+# 3. Values from the local .env must not appear in the staged changes.
+#    Values that also appear in .env.example (public placeholders) or are
+#    shorter than 8 characters (e.g. True) are skipped.
+if [ -f .env ]; then
+  [ -r .env ] || fail ".env exists but cannot be read"
+  example=""
+  [ -f .env.example ] && example=$(cat .env.example)
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
+    case "$line" in ''|'#'*) continue ;; esac
+    line=${line#export }
+    [[ "$line" == *=* ]] || continue
+    key=${line%%=*}
+    value=${line#*=}
+    value=${value#\"}; value=${value%\"}
+    value=${value#\'}; value=${value%\'}
+    [ "${#value}" -ge 8 ] || continue
+    if [ -n "$example" ] && contains "$value" "$example"; then
+      continue
+    fi
+    if contains "$value" "$added"; then
+      fail "the value of $key from .env appears in the staged changes"
+    fi
+  done < .env
+fi
+
+echo "Secret check passed."
