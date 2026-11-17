@@ -5,6 +5,7 @@ import os
 from flask import Flask
 
 from app.config import CONFIGS
+from app.errors import register_error_handlers
 from app.extensions import db, migrate
 
 
@@ -39,5 +40,6 @@ def create_app(config_name: str | None = None) -> Flask:
     from app.api import bp as api_bp
 
     app.register_blueprint(api_bp)
+    register_error_handlers(app)
 
     return app
