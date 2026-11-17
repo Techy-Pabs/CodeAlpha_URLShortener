@@ -5,11 +5,29 @@
 "details" appears only on validation errors and lists each bad field.
 """
 
-from flask import Flask, current_app, json
-from pydantic import ValidationError
+from flask import Flask, Response, current_app, jsonify
+from pydantic import BaseModel, ValidationError
 from werkzeug.exceptions import HTTPException
 
 from app.extensions import db
+
+BODY_NOT_AN_OBJECT = 'Request body must be a JSON object, e.g. {"url": "..."}'
+
+
+# Models of the shape, so the Swagger docs can show it
+class ErrorDetail(BaseModel):
+    field: str
+    message: str
+
+
+class ErrorInfo(BaseModel):
+    code: str
+    message: str
+    details: list[ErrorDetail] | None = None
+
+
+class ErrorResponse(BaseModel):
+    error: ErrorInfo
 
 
 class ApiError(Exception):
@@ -41,11 +59,22 @@ def validation_error(details: list[dict]) -> ApiError:
 
 
 def from_pydantic(exc: ValidationError) -> ApiError:
-    details = [
-        {"field": ".".join(str(part) for part in err["loc"]), "message": err["msg"]}
-        for err in exc.errors()
-    ]
+    details = []
+    for err in exc.errors():
+        field = ".".join(str(part) for part in err["loc"])
+        # An empty location means the body as a whole was wrong: missing,
+        # not JSON, or JSON that isn't an object
+        message = err["msg"] if field else BODY_NOT_AN_OBJECT
+        details.append({"field": field, "message": message})
     return validation_error(details)
+
+
+def pydantic_error_response(exc: ValidationError) -> Response:
+    """flask-openapi3 calls this when a request body or path fails validation."""
+    error = from_pydantic(exc)
+    response = jsonify(error_body(error.code, error.message, error.details))
+    response.status_code = error.status
+    return response
 
 
 def register_error_handlers(app: Flask) -> None:
@@ -55,13 +84,19 @@ def register_error_handlers(app: Flask) -> None:
 
     @app.errorhandler(HTTPException)
     def handle_http_exception(exc: HTTPException):
-        # Flask's own 404, 405, 429 and so on. get_response() keeps headers
-        # such as Allow (405) and Retry-After (429); only the HTML body is
-        # swapped for JSON. "Method Not Allowed" becomes "method_not_allowed".
-        response = exc.get_response()
+        # Some exceptions arrive with a finished response, such as the
+        # validation errors above. Send those as they are.
+        if exc.response is not None:
+            return exc.response
+        # Flask's own 404, 405, 429 and so on, as JSON instead of HTML.
+        # "Method Not Allowed" becomes "method_not_allowed".
         code = (exc.name or "error").lower().replace(" ", "_")
-        response.data = json.dumps(error_body(code, exc.description or exc.name))
-        response.content_type = "application/json"
+        response = jsonify(error_body(code, exc.description or exc.name))
+        response.status_code = exc.code or 500
+        # Keep headers the exception carries, such as Allow on a 405
+        for name, value in exc.get_headers():
+            if name.lower() != "content-type":
+                response.headers[name] = value
         return response
 
     @app.errorhandler(Exception)

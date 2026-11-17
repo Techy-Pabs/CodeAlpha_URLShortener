@@ -3,7 +3,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 from app import create_app
-from app.extensions import db
+from app.extensions import db, limiter
 
 
 def _create_database_if_missing(url: str) -> None:
@@ -49,6 +49,13 @@ def _empty_tables(app):
     for table in reversed(db.metadata.sorted_tables):
         db.session.execute(table.delete())
     db.session.commit()
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits(app):
+    """Start every test with fresh rate limit counters."""
+    limiter.reset()
+    yield
 
 
 @pytest.fixture

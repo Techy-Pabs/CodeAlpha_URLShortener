@@ -1,10 +1,18 @@
-"""Routes outside /api: the short links themselves."""
+"""Routes outside /api: the home page and the short links themselves.
 
-from flask import Blueprint, redirect
+A plain Blueprint, so these stay out of the API docs.
+"""
+
+from flask import Blueprint, redirect, url_for
 
 from app.links import record_click
 
 bp = Blueprint("web", __name__)
+
+
+@bp.get("/")
+def home():
+    return redirect(url_for("openapi.openapi"))
 
 
 @bp.get("/<code>")

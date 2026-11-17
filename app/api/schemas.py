@@ -51,3 +51,11 @@ class LinkResponse(BaseModel):
 class LinkStatsResponse(LinkResponse):
     last_clicked_at: datetime | None
     is_custom: bool
+
+
+class CodePath(BaseModel):
+    code: str = Field(description="The short code, e.g. aB3xK9q")
+
+
+class HealthResponse(BaseModel):
+    status: str

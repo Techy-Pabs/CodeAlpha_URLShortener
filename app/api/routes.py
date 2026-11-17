@@ -1,19 +1,33 @@
-from flask import current_app, request
-from pydantic import ValidationError
+from flask import current_app
+from flask_openapi3 import Tag
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api import bp
-from app.api.schemas import CreateLinkRequest, LinkResponse, LinkStatsResponse
-from app.errors import from_pydantic, validation_error
-from app.extensions import db
+from app.api.schemas import (
+    CodePath,
+    CreateLinkRequest,
+    HealthResponse,
+    LinkResponse,
+    LinkStatsResponse,
+)
+from app.errors import ErrorResponse
+from app.extensions import db, limiter
 from app.links import create_link, get_link, short_url
 from app.models import Link
 
+links_tag = Tag(name="links", description="Create short links and read their stats")
+system_tag = Tag(name="system")
 
-@bp.get("/health")
+CREATE_LIMIT = "10 per minute"
+
+
+@bp.get("/health", tags=[system_tag], responses={200: HealthResponse, 503: HealthResponse})
 def health():
-    """Report whether the app can reach its database."""
+    """Health check
+
+    Reports whether the app can reach its database.
+    """
     try:
         db.session.execute(text("SELECT 1"))
     except SQLAlchemyError:
@@ -33,27 +47,45 @@ def link_response(link: Link) -> dict:
     ).model_dump(mode="json")
 
 
-@bp.post("/links")
-def create():
-    """Shorten a URL: 201 with a new link, or 200 with the existing one."""
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        raise validation_error(
-            [{"field": "", "message": 'Request body must be a JSON object, e.g. {"url": "..."}'}]
-        )
-    try:
-        body = CreateLinkRequest.model_validate(payload)
-    except ValidationError as exc:
-        raise from_pydantic(exc) from None
+@bp.post(
+    "/links",
+    tags=[links_tag],
+    responses={
+        201: LinkResponse,
+        200: LinkResponse,
+        400: ErrorResponse,
+        409: ErrorResponse,
+        429: ErrorResponse,
+        500: ErrorResponse,
+    },
+)
+@limiter.limit(
+    CREATE_LIMIT,
+    error_message=f"Too many links created: the limit is {CREATE_LIMIT} per IP address. "
+    "Try again shortly.",
+)
+def create(body: CreateLinkRequest):
+    """Shorten a URL
 
+    Returns 201 with a new link. Without custom_code, a URL that already has a
+    random code returns that link with 200 instead. Limited to 10 per minute
+    per IP address.
+    """
     link, created = create_link(body.url, body.custom_code)
     return link_response(link), 201 if created else 200
 
 
-@bp.get("/links/<code>")
-def stats(code: str):
-    """Details and click count for one link. Viewing stats is not a click."""
-    link = get_link(code)
+@bp.get(
+    "/links/<code>",
+    tags=[links_tag],
+    responses={200: LinkStatsResponse, 404: ErrorResponse},
+)
+def stats(path: CodePath):
+    """Get a link's stats
+
+    Details and click count for one link. Viewing stats is not a click.
+    """
+    link = get_link(path.code)
     return LinkStatsResponse(
         code=link.code,
         short_url=short_url(link.code),
