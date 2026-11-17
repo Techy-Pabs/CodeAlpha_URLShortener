@@ -44,6 +44,7 @@ def link_response(link: Link) -> dict:
         original_url=link.original_url,
         clicks=link.clicks,
         created_at=link.created_at,
+        expires_at=link.expires_at,
     ).model_dump(mode="json")
 
 
@@ -68,8 +69,9 @@ def create(body: CreateLinkRequest):
     """Shorten a URL
 
     Returns 201 with a new link. Without custom_code, a URL that already has a
-    random code returns that link with 200 instead. Limited to 10 per minute
-    per IP address.
+    random code returns that link with 200 instead, unless that link has
+    expired: then the URL gets a fresh code (201). When LINK_TTL_DAYS is set,
+    new links carry an expires_at. Limited to 10 per minute per IP address.
     """
     link, created = create_link(body.url, body.custom_code)
     return link_response(link), 201 if created else 200
@@ -84,6 +86,7 @@ def stats(path: CodePath):
     """Get a link's stats
 
     Details and click count for one link. Viewing stats is not a click.
+    Works for expired links too.
     """
     link = get_link(path.code)
     return LinkStatsResponse(
@@ -92,6 +95,7 @@ def stats(path: CodePath):
         original_url=link.original_url,
         clicks=link.clicks,
         created_at=link.created_at,
+        expires_at=link.expires_at,
         last_clicked_at=link.last_clicked_at,
         is_custom=link.is_custom,
     ).model_dump(mode="json")

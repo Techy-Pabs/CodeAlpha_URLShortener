@@ -46,6 +46,8 @@ class LinkResponse(BaseModel):
     original_url: str
     clicks: int
     created_at: datetime
+    # null when the link never expires (LINK_TTL_DAYS unset)
+    expires_at: datetime | None
 
 
 class LinkStatsResponse(LinkResponse):

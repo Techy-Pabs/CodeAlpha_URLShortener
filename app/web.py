@@ -18,5 +18,6 @@ def home():
 @bp.get("/<code>")
 def follow(code: str):
     # 302 (temporary), not 301 (permanent): browsers cache a 301 and skip us
-    # on the next visit, so later clicks would never be counted.
+    # on the next visit, so later clicks would never be counted (and an
+    # expired link would keep working from the cache).
     return redirect(record_click(code), code=302)

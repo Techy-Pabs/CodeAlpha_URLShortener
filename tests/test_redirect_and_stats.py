@@ -119,6 +119,7 @@ def test_stats_for_a_new_link(client):
         "original_url": "https://example.com/stats",
         "clicks": 0,
         "created_at": link["created_at"],
+        "expires_at": None,
         "last_clicked_at": None,
         "is_custom": False,
     }

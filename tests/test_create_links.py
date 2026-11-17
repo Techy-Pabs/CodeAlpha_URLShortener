@@ -38,12 +38,13 @@ def test_create_random_link(client):
 
     assert response.status_code == 201
     data = response.get_json()
-    assert set(data) == {"code", "short_url", "original_url", "clicks", "created_at"}
+    assert set(data) == {"code", "short_url", "original_url", "clicks", "created_at", "expires_at"}
     assert BASE62_7.fullmatch(data["code"])
     assert data["short_url"] == f"http://localhost/{data['code']}"
     assert data["original_url"] == "https://example.com/some/long/path"
     assert data["clicks"] == 0
     assert datetime.fromisoformat(data["created_at"]).tzinfo is not None
+    assert data["expires_at"] is None  # LINK_TTL_DAYS is unset in tests
 
     link = db.session.scalar(select(Link).where(Link.code == data["code"]))
     assert link.is_custom is False

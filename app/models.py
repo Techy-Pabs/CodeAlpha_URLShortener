@@ -40,6 +40,8 @@ class Link(db.Model):
     clicks: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_clicked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # After this moment the link answers 410 Gone. NULL: it never expires.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     def __repr__(self) -> str:
         return f"<Link {self.code}>"

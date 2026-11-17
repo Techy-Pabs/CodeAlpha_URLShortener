@@ -34,6 +34,20 @@ def proxy_count(value: str | None) -> int:
     return count
 
 
+def link_ttl_days(value: str | None) -> int | None:
+    """LINK_TTL_DAYS: days a new link lives. Empty or unset means forever."""
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        days = int(raw)
+    except ValueError:
+        raise RuntimeError(f"LINK_TTL_DAYS must be a whole number of days, got {raw!r}") from None
+    if days < 1:
+        raise RuntimeError(f"LINK_TTL_DAYS must be at least 1 (or empty for no expiry), got {days}")
+    return days
+
+
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY")
     SQLALCHEMY_DATABASE_URI = database_uri(os.environ.get("DATABASE_URL"))
@@ -49,6 +63,8 @@ class Config:
     # Trust this many X-Forwarded-For / X-Forwarded-Proto hops. 0 (the
     # default) trusts none, so a client can't fake its IP to dodge limits.
     NUM_PROXIES = proxy_count(os.environ.get("NUM_PROXIES"))
+    # New links expire this many days after they're created. None: never.
+    LINK_TTL_DAYS = link_ttl_days(os.environ.get("LINK_TTL_DAYS"))
     # Flask-Limiter: counters live in this process's memory, so they reset on
     # restart and aren't shared between workers. Fine for one instance.
     RATELIMIT_STORAGE_URI = "memory://"
@@ -74,6 +90,8 @@ class TestingConfig(Config):
     # A separate database, so tests can create and drop tables freely
     SQLALCHEMY_DATABASE_URI = database_uri(os.environ.get("TEST_DATABASE_URL"))
     BASE_URL = "http://localhost"
+    # Tests that need expiry switch it on themselves
+    LINK_TTL_DAYS = None
     REQUIRED = {**Config.REQUIRED, "SQLALCHEMY_DATABASE_URI": "TEST_DATABASE_URL"}
 
 
