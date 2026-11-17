@@ -1,0 +1,19 @@
+# Keep secrets, local environments, caches and anything the running app
+# doesn't need out of the image.
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+.git/
+.githooks/
+.github/
+.claude/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+docs/
+tests/
+docker-compose.yml
+Dockerfile

@@ -1,5 +1,7 @@
-# PostgreSQL only. The Flask dev server runs on the host (port 8002).
+# Postgres, plus the app itself in its production image (web, port 8002).
 # Values come from .env, which docker compose reads automatically.
+# For the Flask dev server on the host instead, run only the database:
+#   docker compose up -d db
 services:
   db:
     image: postgres:16
@@ -16,6 +18,26 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  web:
+    build: .
+    env_file: .env
+    environment:
+      # .env points at localhost:5435 for running on the host. Inside the
+      # Docker network the database is the "db" service on port 5432.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # .env says development for the host dev server; the image runs production
+      FLASK_CONFIG: production
+    ports:
+      - "8002:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

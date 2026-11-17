@@ -72,4 +72,13 @@ def create_app(config_name: str | None = None) -> Flask:
     app.register_blueprint(web_bp)
     register_error_handlers(app)
 
+    @app.after_request
+    def security_headers(response):
+        # nosniff: browsers must trust our Content-Type (JSON stays JSON,
+        # never guessed to be HTML or script). DENY: no site may show our
+        # pages, Swagger UI included, inside a frame (clickjacking).
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        return response
+
     return app
