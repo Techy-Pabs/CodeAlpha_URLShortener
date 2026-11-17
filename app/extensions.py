@@ -21,4 +21,7 @@ class Base(DeclarativeBase):
 
 
 db = SQLAlchemy(model_class=Base)
-migrate = Migrate()
+# Batch mode exists for SQLite, which can't ALTER most things in place and
+# has to copy the whole table instead. We only run Postgres, which can, so
+# new migrations use plain op.add_column / op.create_index calls.
+migrate = Migrate(render_as_batch=False)

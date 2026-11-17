@@ -66,10 +66,11 @@ rc=0
 added=$(grep -E '^\+' <<<"$diff" | grep -vE '^\+\+\+ ') || rc=$?
 [ "$rc" -le 1 ] || fail "diff extraction errored (grep exit $rc)"
 rc=0
-# A Flask SECRET_KEY hardcoded in Python (SECRET_KEY = "..." or
-# app.secret_key = "...") of 8+ characters. Keys belong in .env only.
+# A Flask SECRET_KEY hardcoded in Python, 8+ characters, in any of these forms:
+#   SECRET_KEY = "..."   app.secret_key = "..."   app.config["SECRET_KEY"] = "..."
+# (single or double quotes). Keys belong in .env only.
 hits=$(grep -nE <<<"$added" \
-  '(SECRET_KEY|secret_key) *= *["'"'"'][^"'"'"']{8,}|-----BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9_-]{20,}') || rc=$?
+  '(SECRET_KEY|secret_key)["'"'"']?\]? *= *["'"'"'][^"'"'"']{8,}|-----BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9_-]{20,}') || rc=$?
 [ "$rc" -le 1 ] || fail "pattern check errored (grep exit $rc)"
 [ -z "$hits" ] || fail "secret-looking pattern in staged changes:
 $hits"
