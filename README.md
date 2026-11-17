@@ -1,8 +1,13 @@
 # CodeAlpha URL Shortener
 
 [![CI](https://github.com/Techy-Pabs/CodeAlpha_URLShortener/actions/workflows/ci.yml/badge.svg)](https://github.com/Techy-Pabs/CodeAlpha_URLShortener/actions/workflows/ci.yml)
+[![Live demo](https://img.shields.io/badge/live%20demo-onrender.com-46e3b7)](https://codealpha-urlshortener-0zcl.onrender.com)
 
-**Live demo:** coming soon (the link goes here after deployment).
+**Live demo:** https://codealpha-urlshortener-0zcl.onrender.com (opens the
+Swagger UI at
+[/api/docs/](https://codealpha-urlshortener-0zcl.onrender.com/api/docs/)). It
+runs on Render's free plan, which sleeps when idle, so the first load can take
+up to a minute. Links made on the demo expire after 7 days.
 
 A REST API that turns long URLs into short links, redirects visitors who
 open a short link, and counts the clicks. It's written in Flask with a
@@ -422,7 +427,7 @@ python -c "import secrets; print(secrets.token_urlsafe(50))"
 
 ## Screenshots
 
-All taken from the Swagger UI of the Docker setup, with `LINK_TTL_DAYS=7`.
+All taken from the Swagger UI of the live demo, which runs with `LINK_TTL_DAYS=7`.
 
 ![Swagger UI listing the health, create link and stats endpoints](docs/screenshots/01-swagger-overview.png)
 
