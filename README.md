@@ -291,6 +291,108 @@ once:
 git config core.hooksPath .githooks
 ```
 
+## Deployment
+
+The demo runs on [Render](https://render.com) as a free Docker web service,
+with the database on [Neon](https://neon.tech) (free PostgreSQL). Docker
+Compose is only for local use; on Render the container connects to Neon
+over the internet.
+
+### What the container does when it starts
+
+`docker/entrypoint.sh` runs these steps in order. If one fails, it prints a
+line starting with `ERROR:` and exits without starting the app. Render then
+marks the deploy as failed and keeps the previous version running, so the
+app never serves requests against a half-migrated database.
+
+1. Waits for the database to answer (30 attempts). A Neon database that
+   has been idle needs a moment to wake up.
+2. Applies the migrations with `flask db upgrade`. This is also the first
+   point where the app loads its settings, so a missing `SECRET_KEY`,
+   `DATABASE_URL` or `BASE_URL` stops the deploy here, with the names of
+   the missing variables in the log.
+3. Starts gunicorn on `0.0.0.0:$PORT` with `WEB_CONCURRENCY` workers
+   (1 by default).
+
+### 1. Create the database on Neon
+
+1. Create a Neon project. Choose PostgreSQL 16 to match the local setup,
+   and a region close to the Render region you'll pick.
+2. On the project dashboard, open **Connect**. Turn off **Connection
+   pooling** to get the direct connection string (its host name doesn't
+   contain `-pooler`). The app keeps its own small pool of connections, so
+   it doesn't need Neon's pooler, and migrations run over this connection
+   on every start.
+3. Copy the connection string. It looks like this:
+
+   ```
+   postgresql://USER:PASSWORD@ep-example-123456.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+   ```
+
+   Paste it into Render unchanged. The app switches `postgresql://` to the
+   psycopg 3 driver and passes `sslmode=require` and
+   `channel_binding=require` on to it, so the connection is encrypted.
+   Treat the whole string as a secret, because it contains the database
+   password.
+
+The tables are created by the migrations on the first start.
+
+### 2. Create the web service on Render
+
+1. In Render, choose **New**, then **Web Service**, and connect this GitHub
+   repository. Pick the `main` branch.
+2. Set **Language** to **Docker**. Render builds the `Dockerfile` in the
+   project root. Leave the Docker command empty, so the image's own
+   entrypoint and gunicorn command run.
+3. Choose the **Free** instance type, in a region close to your Neon
+   region.
+4. Under **Advanced**, set **Health Check Path** to `/api/health`. It
+   returns 200 only when the database answers.
+5. Add the environment variables below, then create the service.
+
+Render gives the service an address such as `your-app.onrender.com` and
+serves it over HTTPS. `BASE_URL` must be that address, because the short
+links are built from it. If you don't know the address yet, create the
+service with a placeholder `BASE_URL`, then correct it and let it redeploy.
+
+Every push to `main` then triggers a new build and deploy.
+
+### Environment variables on Render
+
+| Variable | Value | What it's for |
+| --- | --- | --- |
+| `SECRET_KEY` | A new random value, not your local one | Flask's secret key. The app won't start without it |
+| `DATABASE_URL` | The Neon direct connection string, unchanged | How the app reaches the database |
+| `BASE_URL` | `https://your-app.onrender.com` | The address short links are built from. Links to this host are rejected |
+| `LINK_TTL_DAYS` | `7` | Demo links expire after a week, so the public demo can't be used to host links forever |
+| `NUM_PROXIES` | `1` | Lets the rate limit see each visitor's IP instead of Render's proxy. See the production notes |
+| `WEB_CONCURRENCY` | Optional, `1` | Number of gunicorn workers. Keep it at 1 so the rate limit has a single count |
+
+Already handled, so don't set them: `PORT` (Render sets it), `FLASK_CONFIG`
+and `FLASK_APP` (the image sets `production` and `app`). `FLASK_RUN_PORT`,
+`POSTGRES_*` and `TEST_DATABASE_URL` are only for local use.
+
+Generate a secret key with:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(50))"
+```
+
+### Free plan behaviour
+
+- **It sleeps.** A free Render web service goes to sleep after about 15
+  minutes without requests. The next request wakes it up, which can take up
+  to about a minute (the container also checks the migrations again), so
+  the first request after a quiet period is slow. It's quick again once
+  awake.
+- **Neon pauses too.** Neon's free plan suspends the database when it's
+  idle and resumes it on the next query, which adds a short delay. Pooled
+  connections that Neon closed in the meantime are tested before use
+  (`pool_pre_ping`) and replaced, so they don't cause errors.
+- **One instance, little memory.** 512 MB of RAM. One gunicorn worker fits
+  easily. The rate limit counters live in that worker's memory and reset
+  whenever the service restarts or wakes up.
+
 ## Production notes
 
 - **Startup checks.** The app refuses to start if `SECRET_KEY`,
